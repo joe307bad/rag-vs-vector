@@ -83,6 +83,17 @@ corpus_roots:
     exclude: []
 ```
 
+### 5. (Optional) Add a Teams channel
+
+`corpus/teams_export.py` exports a channel's whole history as one Markdown file per thread. Graph's channel-message API needs admin consent, so it goes through the Teams web client in Edge with your own sign-in (`pip install -e .[teams]`):
+
+```bash
+python -m corpus.teams_export fetch "<channel link from Teams: … > Get link to channel>" --raw cache/teams/<name>
+python -m corpus.teams_export convert cache/teams/<name> --out C:/path/to/teams-exports/<name>
+```
+
+Then add the `--out` folder to `manifest.yaml` like any other root. Re-run both steps to pick up new messages.
+
 ---
 
 ## Running the benchmark
@@ -114,7 +125,8 @@ rag-vs-vector/
 ├── manifest.example.yaml   # template — copy to manifest.yaml
 ├── config.py               # settings (models, chunk size, top-k, etc.)
 ├── corpus/
-│   └── discover.py         # walks manifest roots, yields DocFile objects
+│   ├── discover.py         # walks manifest roots, yields DocFile objects
+│   └── teams_export.py     # Teams channel → one Markdown file per thread
 ├── pipeline/
 │   └── index.py            # incremental ChromaDB indexer (SHA-256 hash cache)
 ├── approaches/
