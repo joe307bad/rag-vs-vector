@@ -49,11 +49,17 @@ def warmup() -> None:
     get_embedding_model()
     if _bm25 is not None:
         return
-    data = get_collection().get(include=["documents", "metadatas"])
-    _bm25_ids = data["ids"]
-    _meta_by_id = dict(zip(data["ids"], data["metadatas"]))
-    _text_by_id.update(zip(data["ids"], data["documents"]))
-    _bm25 = BM25Okapi([_tokenize(d) for d in data["documents"]])
+    # Paged: one get() of the whole collection exceeds SQLite's variable limit on a large corpus.
+    collection, ids, metas, docs = get_collection(), [], [], []
+    for offset in range(0, collection.count(), 5000):
+        page = collection.get(include=["documents", "metadatas"], limit=5000, offset=offset)
+        ids += page["ids"]
+        metas += page["metadatas"]
+        docs += page["documents"]
+    _bm25_ids = ids
+    _meta_by_id = dict(zip(ids, metas))
+    _text_by_id.update(zip(ids, docs))
+    _bm25 = BM25Okapi([_tokenize(d) for d in docs])
 
 
 def _dense_ranked(question: str) -> list[str]:
