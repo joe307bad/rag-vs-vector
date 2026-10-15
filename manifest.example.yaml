@@ -1,0 +1,42 @@
+# Copy this file to manifest.yaml and fill in your own paths.
+# manifest.yaml is gitignored — your corpus paths stay private.
+#
+# Each entry points to a directory on your machine that contains documentation.
+# Files are read in-place; nothing is copied into this project.
+
+corpus_roots:
+  - path: "C:/path/to/your/product-wiki"
+    label: product-wiki
+    include: ["**/*.md"]
+    exclude: [".attachments/**"]
+
+  - path: "C:/path/to/your/main-repo"
+    label: main-repo
+    include: ["docs/**/*.md", "**/*.md"]
+    exclude: ["build/**", "node_modules/**", "dist/**"]
+
+  - path: "C:/path/to/another/repo"
+    label: another-repo
+    include: ["**/*.md"]
+    exclude: []
+
+# Tips:
+#   - label is a short identifier used in results and metadata; keep it slug-friendly.
+#   - include/exclude use gitignore-style glob patterns.
+#   - Add as many roots as you like. The index pipeline only re-processes changed files.
+#   - Paths with spaces work; URL-encoding (%20) is also supported.
+
+# Applied to every root regardless of per-root excludes
+global_exclude:
+  - ".git/**"
+  - "**/node_modules/**"
+  - ".attachments/**"
+  - "**/__pycache__/**"
+  - "**/.pnpm/**"
+  - "**/dist/**"
+  - "**/build/**"
+  # Vendored third-party docs are not your documentation
+  - "**/lib/packages/**"
+  - "**/.venv/**"
+  - "**/site-packages/**"
+  - "**/*.dist-info/**"
