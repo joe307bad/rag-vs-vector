@@ -121,6 +121,44 @@ Results are saved as JSON in `results/` so you can compare runs over time.
 
 ---
 
+## Results
+
+Run of 2026-10-15 (`results/run_20261015T171228.json`). 38 questions over 15 sources (1,509 Markdown documents, 55,674 chunks), 12 of them from a Teams escalation channel added with `corpus/teams_export.py`. Contestants on Claude Haiku 5.5, judge on Claude Sonnet 5.5. One run per approach, so differences of a few tenths are within judge and sampling noise.
+
+| Approach | Correctness | Relevance | Mean time | Cost |
+|---|---|---|---|---|
+| RAG | **9.13** | **8.87** | **6.4 s** | — |
+| Claude Code | 8.95 | 8.08 | 13.1 s (15.1 s wall) | $0.10 |
+| Filesystem agent | 8.63 | 7.47 | 19.3 s | — |
+
+By source (correctness):
+
+| Approach | Teams threads (12) | Other docs (26) |
+|---|---|---|
+| RAG | 8.42 | **9.46** |
+| Claude Code | **8.58** | 9.12 |
+| Filesystem agent | 7.83 | 9.00 |
+
+One Teams question scored 0 for all three approaches: they all answered that the thread names no root cause, while the generated reference answer treats a participant's guess as the cause. Without it, correctness is RAG 9.38, Claude Code 9.19, agent 8.86 overall, and Claude Code 9.36, RAG 9.18, agent 8.55 on the Teams threads. Chat threads make weaker reference answers than documentation, because many never state a resolution.
+
+### What changed since the previous run
+
+The previous run (`results/run_20261015T121405.json`, same 38 questions) scored RAG 9.55, agent 8.76, Claude Code 8.29. Since then:
+
+**Claude Code is held to the same conditions as the other two** (see *What it benchmarks*). It works in a staged copy of exactly the indexed documents with reads capped at about 15,000 characters, and loads no personal `CLAUDE.md` or settings. The permission boundary was checked directly: reads and globs of a source file outside the staged corpus were denied, and in the benchmark it made no tool call outside it. Two effects:
+
+- Its correctness rose from 8.29 to 8.95. The old setup also *hid* files from it: its Grep honors each repository's `.gitignore`, so generated API docs and docs under `bin/` were invisible to it but not to RAG or the agent. Two of its 0 scores were exactly that. The staged copy has no `.gitignore`, so all three now see the same files.
+- Its time fell from 29.6 s to 13.1 s. The figure is now the session time the CLI reports; CLI startup adds about 2 s (15.1 s wall-clock). The rest of the drop comes from searching a smaller tree: Markdown only, no source code.
+
+**RAG's reranker quotes each candidate's two best passages instead of one.** This was chosen on a separate dev set (75 questions from earlier question sets plus 10 new Teams questions, none sharing a source document with the test set; `benchmark/retrieval_eval.py`), not on the test questions. On the dev set:
+
+- The source document was in the fused top 15 for 73 of 75 questions, and still 74 at top 30 or top 100. The candidate window is not the ceiling; the misses are documents neither search finds at all. Pulling more candidates from each search (150 instead of 40) made fusion worse: top 15 fell to 66.
+- In the final 4 documents: 69/75 with one passage, 71/75 with two passages or with a 30-candidate window. Two passages costs fewer reranker tokens than doubling the window.
+
+On the test set the change made no measurable difference. The source document reached RAG's context for 37 of 38 questions in both runs, and the drop from 9.55 to 9.13 comes from answer and judge variance on questions where it had the right document both times, not from retrieval.
+
+---
+
 ## Project structure
 
 ```
@@ -138,6 +176,7 @@ rag-vs-vector/
 │   └── claude_code.py      # headless Claude Code runner
 ├── benchmark/
 │   ├── questions.py        # LLM-based QA pair generation (stratified by source)
+│   ├── retrieval_eval.py   # RAG retrieval hit rates on a dev set (for tuning without the test set)
 │   ├── runner.py           # runs each approach, records timing
 │   └── judge.py            # LLM-as-judge scoring (anonymized, shuffled)
 └── run.py                  # CLI entry point
