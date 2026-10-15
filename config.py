@@ -39,6 +39,10 @@ CHUNK_OVERLAP = 30
 RAG_DENSE_K = 40       # candidates from vector search
 RAG_SPARSE_K = 40      # candidates from BM25
 RAG_RERANK_CANDIDATES = 15  # fused candidates shown to the LLM reranker
+# Matching passages quoted per candidate (1 = best passage, 600 chars; more = 400 each). Chosen on the dev set
+# (cache/questions_dev.json, no overlap with the test questions): 2 passages and a 30-candidate window each
+# raised source-in-final-4 from 69 to 71 of 75; 2 passages costs fewer reranker tokens.
+RAG_RERANK_PASSAGES = 2
 RAG_TOP_DOCS = 4       # documents whose full text is passed to the LLM
 RAG_DOC_CHARS = 15_000 # per-document cap in the LLM context
 

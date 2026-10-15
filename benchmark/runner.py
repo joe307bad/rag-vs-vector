@@ -15,7 +15,7 @@ def _run_one(approach: str, question: str, metadata_index: list[dict], corpus_ro
         return answer_agent(question, metadata_index, corpus_roots=corpus_roots)
     if approach == "claude_code":
         from approaches.claude_code import answer_claude_code
-        return answer_claude_code(question, corpus_roots)
+        return answer_claude_code(question)
     raise ValueError(f"Unknown approach: {approach}")
 
 
@@ -44,6 +44,10 @@ def run_benchmark(
         from approaches.rag import warmup
         print("  Warming up RAG (embedding model + BM25 index)...")
         warmup()
+
+    if "claude_code" in approaches:
+        from approaches.claude_code import stage_corpus
+        print(f"  Staging the indexed documents for Claude Code in {stage_corpus(metadata_index)}...")
 
     for q in questions:
         qid = q["id"]

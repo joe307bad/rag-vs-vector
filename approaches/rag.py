@@ -98,8 +98,14 @@ def _rank_documents(question: str) -> list[tuple[str, list[str]]]:
 
 def _rerank(client, question: str, candidates: list[tuple[str, list[str]]], usage: dict) -> list[str]:
     """Ask the LLM which candidates most likely answer the question. Falls back to fused order."""
+    def passages(ids: list[str]) -> str:
+        n = config.RAG_RERANK_PASSAGES
+        chars = 600 if n == 1 else 400
+        quoted = [_text_by_id.get(ids[0], "")[:chars]] + [_strip_header(_text_by_id.get(c, ""))[:chars] for c in ids[1:n]]
+        return "\n...\n".join(quoted)
+
     listing = "\n\n".join(
-        f"[{i}] {_meta_by_id[ids[0]]['label']}/{_meta_by_id[ids[0]]['rel_path']}\n{_text_by_id.get(ids[0], '')[:600]}"
+        f"[{i}] {_meta_by_id[ids[0]]['label']}/{_meta_by_id[ids[0]]['rel_path']}\n{passages(ids)}"
         for i, (_, ids) in enumerate(candidates, 1)
     )
     fallback = [p for p, _ in candidates]

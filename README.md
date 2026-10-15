@@ -14,7 +14,7 @@ Three approaches answer the same set of questions drawn from your own documentat
 1. Split docs on Markdown headings into ~160-word chunks, each prefixed with its file path and title
 2. Embed chunks with `sentence-transformers` (`all-MiniLM-L6-v2`) into a local ChromaDB store
 3. At query time: retrieve candidates with both vector search and BM25, fuse with Reciprocal Rank Fusion, and group by document
-4. Claude reranks the top 15 candidate documents (path + best passage) and picks the likeliest
+4. Claude reranks the top 15 candidate documents (path + their two best-matching passages) and picks the likeliest
 5. The full text of the top 4 documents goes to Claude, which answers
 
 **Filesystem agent** — a port of LlamaIndex's [fs-explorer](https://github.com/run-llama/fs-explorer) to Claude
@@ -24,10 +24,13 @@ Three approaches answer the same set of questions drawn from your own documentat
 4. Same file limit as RAG (15,000 characters per read), same set of files, and a 20-action budget after which it must answer from what it has read
 
 **Claude Code** — the real-world baseline
-1. Each question runs as a fresh headless `claude -p` session on the same model, restricted to the read-only `Read`, `Grep` and `Glob` tools, with the corpus folders added
-2. No MCP servers, settings or hooks are loaded, and it runs from a folder outside any repository
-3. Unlike the fs-explorer agent, its `Grep` searches file contents across whole folders, not one file at a time
-4. Requires the [Claude Code CLI](https://docs.claude.com/en/docs/claude-code) on your PATH; the run records its cost per question
+1. Each question runs as a fresh headless `claude -p` session on the same model, restricted to the read-only `Read`, `Grep` and `Glob` tools
+2. It sees exactly the files the other two approaches do: the benchmark copies the manifest's Markdown files into a staging folder outside any repository and runs Claude Code there with no other directory added. Its permission system denies reads anywhere else, so source code and other non-Markdown files in the corpus folders are out of reach
+3. Same read budget: one `Read` returns about 15,000 characters (`CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS`, calibrated) instead of up to 2,000 lines, so long files are read in pages like the agent's
+4. No personal context: `CLAUDE.md` files and auto-memory are disabled and its config directory is an empty folder, so your `~/.claude` (instructions, settings, hooks, MCP servers) is never loaded
+5. Its time is the session time the CLI reports, without CLI startup; wall-clock time is recorded as well
+6. Unlike the fs-explorer agent, its `Grep` searches file contents across whole folders, not one file at a time
+7. Requires the [Claude Code CLI](https://docs.claude.com/en/docs/claude-code) on your PATH; the run records its cost per question
 
 All answers to a question are scored together, 0–10 for **correctness** and **relevance**, by an LLM judge (also Claude). The judge sees them anonymized and in a shuffled order, so it can't favor an approach by name or position. Wall-clock time is recorded for each answer.
 
@@ -154,6 +157,7 @@ Edit `config.py` to tune the benchmark:
 | `CHUNK_OVERLAP` | `30` | Overlap between chunks |
 | `RAG_DENSE_K` / `RAG_SPARSE_K` | `40` | Candidates from vector search / BM25 |
 | `RAG_RERANK_CANDIDATES` | `15` | Documents shown to the LLM reranker |
+| `RAG_RERANK_PASSAGES` | `2` | Matching passages quoted per candidate document |
 | `RAG_TOP_DOCS` | `4` | Full documents passed to the answering LLM |
 | `MAX_FILE_READ` | `50000` | Max chars read per file (agent + indexer) |
 
