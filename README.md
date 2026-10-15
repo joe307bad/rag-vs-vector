@@ -8,7 +8,7 @@ Inspired by the [LlamaIndex "Did filesystem tools kill vector search?" post](htt
 
 ## What it benchmarks
 
-Three approaches answer the same set of questions drawn from your own documentation corpus:
+Four approaches answer the same set of questions drawn from your own documentation corpus:
 
 **RAG pipeline**
 1. Split docs on Markdown headings into ~160-word chunks, each prefixed with its file path and title
@@ -31,6 +31,12 @@ Three approaches answer the same set of questions drawn from your own documentat
 5. Its time is the session time the CLI reports, without CLI startup; wall-clock time is recorded as well
 6. Unlike the fs-explorer agent, its `Grep` searches file contents across whole folders, not one file at a time
 7. Requires the [Claude Code CLI](https://docs.claude.com/en/docs/claude-code) on your PATH; the run records its cost per question
+
+**Claude Code + RAG search** (`claude_code_rag`) — the hybrid
+1. The same Claude Code setup, plus one MCP tool, `search`, served by `approaches/rag_mcp.py`
+2. `search` runs RAG's retrieval (vector search + BM25, fused, grouped by document) and returns the top 10 documents with their two best-matching passages, within the same 15,000-character budget. It makes no LLM calls: Claude Code does the reranking and answering, so all tokens show up in its own usage
+3. Claude Code decides when to use `search` and when to `Grep` or `Read`
+4. One server runs for the whole benchmark (the index takes ~40 s to load), started and stopped by the runner, the way RAG's warmup is excluded from its per-question time
 
 All answers to a question are scored together, 0–10 for **correctness** and **relevance**, by an LLM judge (also Claude). The judge sees them anonymized and in a shuffled order, so it can't favor an approach by name or position. Wall-clock time is recorded for each answer.
 
@@ -108,7 +114,7 @@ python run.py index
 # Step 2: Generate questions from your corpus using Claude
 python run.py generate-questions --n 20
 
-# Step 3: Run all three approaches and score them
+# Step 3: Run all four approaches and score them
 python run.py benchmark
 # ...or a subset, e.g. skip Claude Code if you don't have the CLI:
 python run.py benchmark --approaches rag,agent
@@ -123,39 +129,45 @@ Results are saved as JSON in `results/` so you can compare runs over time.
 
 ## Results
 
-Run of 2026-10-15 (`results/run_20261015T171228.json`). 38 questions over 15 sources (1,509 Markdown documents, 55,674 chunks), 12 of them from a Teams escalation channel added with `corpus/teams_export.py`. Contestants on Claude Haiku 5.5, judge on Claude Sonnet 5.5. One run per approach, so differences of a few tenths are within judge and sampling noise.
+Run of 2026-10-15 (`results/run_20261015T202311.json`). 38 questions over 15 sources (1,509 Markdown documents, 55,674 chunks), 12 of them from a Teams escalation channel added with `corpus/teams_export.py`. Contestants on Claude Haiku 5.5, judge on Claude Sonnet 5.5.
 
-| Approach | Correctness | Relevance | Mean time | Cost |
-|---|---|---|---|---|
-| RAG | **9.13** | **8.87** | **6.4 s** | — |
-| Claude Code | 8.95 | 8.08 | 13.1 s (15.1 s wall) | $0.10 |
-| Filesystem agent | 8.63 | 7.47 | 19.3 s | — |
+| Approach | Correctness | Relevance | Mean time | Input tokens / question | Cost (38 questions) |
+|---|---|---|---|---|---|
+| RAG | **9.47** | **9.08** | **6.5 s** | **19k** | — |
+| Claude Code | 9.32 | 8.68 | 14.5 s (16.5 s wall) | 71k | $0.11 |
+| Claude Code + RAG search | 9.24 | 8.63 | 10.6 s (12.9 s wall) | 38k | $0.08 |
+| Filesystem agent | 9.03 | 7.76 | 17.7 s | 111k | — |
 
 By source (correctness):
 
 | Approach | Teams threads (12) | Other docs (26) |
 |---|---|---|
-| RAG | 8.42 | **9.46** |
-| Claude Code | **8.58** | 9.12 |
-| Filesystem agent | 7.83 | 9.00 |
+| RAG | 9.17 | **9.62** |
+| Claude Code | 9.17 | 9.38 |
+| Claude Code + RAG search | 9.00 | 9.35 |
+| Filesystem agent | 9.00 | 9.04 |
 
-One Teams question scored 0 for all three approaches: they all answered that the thread names no root cause, while the generated reference answer treats a participant's guess as the cause. Without it, correctness is RAG 9.38, Claude Code 9.19, agent 8.86 overall, and Claude Code 9.36, RAG 9.18, agent 8.55 on the Teams threads. Chat threads make weaker reference answers than documentation, because many never state a resolution.
+**How much of this is noise.** One run per approach. The previous run (`results/run_20261015T171228.json`) had identical code for RAG, Claude Code and the agent, and each still moved by 0.3–0.4 (RAG 9.13 → 9.47, Claude Code 8.95 → 9.32, agent 8.63 → 9.03). Correctness differences under about 0.4 are not meaningful here. The time and token differences are much larger than that and are stable between runs.
 
-### What changed since the previous run
+**Claude Code + RAG search** scores the same as plain Claude Code, but answers 27% faster with 46% fewer input tokens and 24% lower cost. It called `search` on 36 of 38 questions, but led with it on only 4: it usually greps first and uses `search` when grep's matches don't settle it. That halves its Grep and Read calls (1.6 and 0.8 per question, against 3.2 and 1.5), and it finishes in 4.6 turns instead of 6.0. What the tool adds is fewer wasted searches, not more correct answers: plain Claude Code was already finding the right document.
 
-The previous run (`results/run_20261015T121405.json`, same 38 questions) scored RAG 9.55, agent 8.76, Claude Code 8.29. Since then:
+One Teams question has a weak reference answer: every approach says the thread names no root cause, while the generated reference treats a participant's guess as the cause. The judge gave all four 5 this run and all three 0 in the previous one. Chat threads make weaker reference answers than documentation, because many never state a resolution.
+
+### What changed since the first run
+
+The first run (`results/run_20261015T121405.json`, same 38 questions) scored RAG 9.55, agent 8.76, Claude Code 8.29. Since then:
 
 **Claude Code is held to the same conditions as the other two** (see *What it benchmarks*). It works in a staged copy of exactly the indexed documents with reads capped at about 15,000 characters, and loads no personal `CLAUDE.md` or settings. The permission boundary was checked directly: reads and globs of a source file outside the staged corpus were denied, and in the benchmark it made no tool call outside it. Two effects:
 
-- Its correctness rose from 8.29 to 8.95. The old setup also *hid* files from it: its Grep honors each repository's `.gitignore`, so generated API docs and docs under `bin/` were invisible to it but not to RAG or the agent. Two of its 0 scores were exactly that. The staged copy has no `.gitignore`, so all three now see the same files.
-- Its time fell from 29.6 s to 13.1 s. The figure is now the session time the CLI reports; CLI startup adds about 2 s (15.1 s wall-clock). The rest of the drop comes from searching a smaller tree: Markdown only, no source code.
+- Its correctness rose from 8.29 (to 8.95 and 9.32 in the two runs since). The old setup also *hid* files from it: its Grep honors each repository's `.gitignore`, so generated API docs and docs under `bin/` were invisible to it but not to RAG or the agent. Two of its 0 scores were exactly that. The staged copy has no `.gitignore`, so all three now see the same files.
+- Its time fell from 29.6 s to 13–15 s. The figure is now the session time the CLI reports; CLI startup adds about 2 s. The rest of the drop comes from searching a smaller tree: Markdown only, no source code.
 
 **RAG's reranker quotes each candidate's two best passages instead of one.** This was chosen on a separate dev set (75 questions from earlier question sets plus 10 new Teams questions, none sharing a source document with the test set; `benchmark/retrieval_eval.py`), not on the test questions. On the dev set:
 
 - The source document was in the fused top 15 for 73 of 75 questions, and still 74 at top 30 or top 100. The candidate window is not the ceiling; the misses are documents neither search finds at all. Pulling more candidates from each search (150 instead of 40) made fusion worse: top 15 fell to 66.
 - In the final 4 documents: 69/75 with one passage, 71/75 with two passages or with a 30-candidate window. Two passages costs fewer reranker tokens than doubling the window.
 
-On the test set the change made no measurable difference. The source document reached RAG's context for 37 of 38 questions in both runs, and the drop from 9.55 to 9.13 comes from answer and judge variance on questions where it had the right document both times, not from retrieval.
+On the test set the change made no measurable difference. The source document reached RAG's context for 37 of 38 questions in every run, before and after; its score moving between 9.13 and 9.55 is answer and judge variance, not retrieval.
 
 ---
 
@@ -173,7 +185,8 @@ rag-vs-vector/
 ├── approaches/
 │   ├── rag.py              # RAG pipeline
 │   ├── agent.py            # filesystem agent (fs-explorer port on Claude)
-│   └── claude_code.py      # headless Claude Code runner
+│   ├── claude_code.py      # headless Claude Code runner (with or without the RAG tool)
+│   └── rag_mcp.py          # RAG retrieval as an MCP search tool, for claude_code_rag
 ├── benchmark/
 │   ├── questions.py        # LLM-based QA pair generation (stratified by source)
 │   ├── retrieval_eval.py   # RAG retrieval hit rates on a dev set (for tuning without the test set)
