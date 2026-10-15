@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import contextlib
 import random
 import traceback
 
-APPROACHES = ("rag", "agent", "claude_code")
+import config
+
+APPROACHES = ("rag", "agent", "claude_code", "claude_code_rag")
 
 
-def _run_one(approach: str, question: str, metadata_index: list[dict], corpus_roots: list[str]) -> dict:
+def _run_one(approach: str, question: str, metadata_index: list[dict], corpus_roots: list[str], rag_url: str | None) -> dict:
     if approach == "rag":
         from approaches.rag import answer_rag
         return answer_rag(question)
@@ -16,6 +19,9 @@ def _run_one(approach: str, question: str, metadata_index: list[dict], corpus_ro
     if approach == "claude_code":
         from approaches.claude_code import answer_claude_code
         return answer_claude_code(question)
+    if approach == "claude_code_rag":
+        from approaches.claude_code import answer_claude_code
+        return answer_claude_code(question, rag_url=rag_url)
     raise ValueError(f"Unknown approach: {approach}")
 
 
@@ -45,24 +51,33 @@ def run_benchmark(
         print("  Warming up RAG (embedding model + BM25 index)...")
         warmup()
 
-    if "claude_code" in approaches:
+    if {"claude_code", "claude_code_rag"} & set(approaches):
         from approaches.claude_code import stage_corpus
         print(f"  Staging the indexed documents for Claude Code in {stage_corpus(metadata_index)}...")
 
-    for q in questions:
-        qid = q["id"]
-        print(f"\n  Question {qid}: {q['question'][:80]}...")
-        # Shuffled per question (seeded) so no approach always runs first or last.
-        order = approaches[:]
-        random.Random(f"order-{qid}").shuffle(order)
-        for approach in order:
-            print(f"    Running {approach}...", end=" ", flush=True)
-            try:
-                r = _run_one(approach, q["question"], metadata_index, corpus_roots)
-                results[approach][qid] = {**r, "error": None}
-                print(f"done ({_summary(r)})")
-            except Exception as e:
-                results[approach][qid] = {"answer": "", "elapsed": 0.0, "error": traceback.format_exc()}
-                print(f"ERROR: {e}")
+    with contextlib.ExitStack() as stack:
+        rag_url = None
+        if "claude_code_rag" in approaches:
+            from approaches.rag_mcp import serve
+            print("  Starting the RAG MCP server for claude_code_rag (loads the index once)...")
+            config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            rag_url = stack.enter_context(serve(config.CACHE_DIR / "rag_mcp.log"))
+            print(f"  RAG MCP server at {rag_url}")
+
+        for q in questions:
+            qid = q["id"]
+            print(f"\n  Question {qid}: {q['question'][:80]}...")
+            # Shuffled per question (seeded) so no approach always runs first or last.
+            order = approaches[:]
+            random.Random(f"order-{qid}").shuffle(order)
+            for approach in order:
+                print(f"    Running {approach}...", end=" ", flush=True)
+                try:
+                    r = _run_one(approach, q["question"], metadata_index, corpus_roots, rag_url)
+                    results[approach][qid] = {**r, "error": None}
+                    print(f"done ({_summary(r)})")
+                except Exception as e:
+                    results[approach][qid] = {"answer": "", "elapsed": 0.0, "error": traceback.format_exc()}
+                    print(f"ERROR: {e}")
 
     return results

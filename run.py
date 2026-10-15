@@ -5,7 +5,7 @@ rag-vs-vector benchmark CLI.
 Commands:
   python run.py index [--force]
   python run.py generate-questions [--n N] [--seed S] [--output PATH]
-  python run.py benchmark [--questions PATH] [--approaches rag,agent,claude_code]
+  python run.py benchmark [--questions PATH] [--approaches rag,agent,claude_code,claude_code_rag]
   python run.py report [PATH]
 """
 from __future__ import annotations
@@ -288,7 +288,7 @@ def main():
     # benchmark
     p_bench = subparsers.add_parser("benchmark", help="Run benchmark on generated questions")
     p_bench.add_argument("--questions", type=str, default=None, help="Path to questions JSON")
-    p_bench.add_argument("--approaches", type=str, default="rag,agent,claude_code", help="Comma-separated: rag,agent,claude_code")
+    p_bench.add_argument("--approaches", type=str, default="rag,agent,claude_code,claude_code_rag", help="Comma-separated: rag,agent,claude_code,claude_code_rag")
     p_bench.add_argument("--reuse-agent", type=str, default=None, help="Take agent answers from a previous run JSON instead of re-running the agent")
 
     # judge

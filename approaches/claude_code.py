@@ -45,10 +45,12 @@ READ_MAX_TOKENS = 6_400
 
 TASK_PROMPT = (
     "Search the answer to the following question: '{question}' by using the Markdown (.md) documentation "
-    "in the current directory (one folder per documentation source).\n\n"
+    "in the current directory (one folder per documentation source).{rag_hint}\n\n"
     "In your final response, you must report the answer to the question. "
     + config.ANSWER_INSTRUCTIONS.replace("{", "{{").replace("}", "}}")
 )
+RAG_TOOL = "mcp__rag__search"
+RAG_HINT = " Besides Read, Grep and Glob you have a `search` tool that searches the documentation by meaning and keywords."
 
 
 def stage_corpus(metadata_index: list[dict]) -> Path:
@@ -85,9 +87,10 @@ def _describe_tool_use(block: dict) -> str:
     return f"{block.get('name')}({str(brief)[:140]})"
 
 
-def answer_claude_code(question: str) -> dict:
+def answer_claude_code(question: str, rag_url: str | None = None) -> dict:
     """Returns {answer, tool_calls, elapsed, wall_elapsed, cost_usd, num_turns}. Raises on CLI failure.
-    stage_corpus() must have been called first."""
+    stage_corpus() must have been called first. With rag_url (a running approaches.rag_mcp server),
+    Claude Code also gets RAG retrieval as the MCP tool `search`: the claude_code_rag candidate."""
     exe = shutil.which("claude")
     if exe is None:
         raise RuntimeError("Claude Code CLI ('claude') not found on PATH")
@@ -100,10 +103,14 @@ def answer_claude_code(question: str) -> dict:
         "--strict-mcp-config", "--setting-sources", "",
         "--tools", TOOLS,
     ]
+    if rag_url:
+        cmd += ["--mcp-config", json.dumps({"mcpServers": {"rag": {"type": "http", "url": rag_url}}}),
+                "--allowedTools", RAG_TOOL]
+    prompt = TASK_PROMPT.format(question=question, rag_hint=RAG_HINT if rag_url else "")
 
     t0 = time.perf_counter()
     proc = subprocess.run(
-        cmd, input=TASK_PROMPT.format(question=question), capture_output=True, text=True, encoding="utf-8",
+        cmd, input=prompt, capture_output=True, text=True, encoding="utf-8",
         errors="replace", cwd=CORPUS_DIR, env=_env(), timeout=TIMEOUT_S,
     )
     wall = time.perf_counter() - t0
