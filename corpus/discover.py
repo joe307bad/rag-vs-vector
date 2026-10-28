@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
@@ -53,6 +54,7 @@ def discover_corpus(manifest_path: str | Path) -> list[DocFile]:
 
         include_spec = _make_spec(include_patterns)
         exclude_spec = _make_spec(exclude_patterns)
+        found_before = len(results)
 
         for dirpath, dirnames, filenames in os.walk(root):
             rel_dir = Path(dirpath).relative_to(root).as_posix()
@@ -73,7 +75,29 @@ def discover_corpus(manifest_path: str | Path) -> list[DocFile]:
                     continue
                 results.append(DocFile(path=str(file_path), label=label, rel_path=rel, size_bytes=size))
 
+        ignored = _git_ignored(root, [d.rel_path for d in results[found_before:]])
+        if ignored:
+            results[found_before:] = [d for d in results[found_before:] if d.rel_path not in ignored]
+
     return results
+
+
+def _git_ignored(root: Path, rel_paths: list[str]) -> set[str]:
+    """Paths the repo's .gitignore excludes (generated files, build output). Leaving them out keeps the
+    corpus to what's actually in the repos, and matches what git-aware tools like ripgrep search."""
+    if not rel_paths:
+        return set()
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(root), "check-ignore", "-z", "--stdin"],
+            input="\0".join(rel_paths), capture_output=True, text=True, encoding="utf-8",
+        )
+    except OSError:
+        return set()
+    # Exit code 1 means nothing is ignored; 128 means not a git repository.
+    if proc.returncode not in (0, 1):
+        return set()
+    return {p for p in proc.stdout.split("\0") if p}
 
 
 def _extract_title(content: str, fallback: str) -> str:

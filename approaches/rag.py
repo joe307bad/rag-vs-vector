@@ -49,11 +49,18 @@ def warmup() -> None:
     get_embedding_model()
     if _bm25 is not None:
         return
-    data = get_collection().get(include=["documents", "metadatas"])
-    _bm25_ids = data["ids"]
-    _meta_by_id = dict(zip(data["ids"], data["metadatas"]))
-    _text_by_id.update(zip(data["ids"], data["documents"]))
-    _bm25 = BM25Okapi([_tokenize(d) for d in data["documents"]])
+    collection = get_collection()
+    ids, metas, texts = [], [], []
+    page = 5_000  # one large get() exceeds SQLite's variable limit
+    for offset in range(0, collection.count(), page):
+        data = collection.get(include=["documents", "metadatas"], limit=page, offset=offset)
+        ids += data["ids"]
+        metas += data["metadatas"]
+        texts += data["documents"]
+    _bm25_ids = ids
+    _meta_by_id = dict(zip(ids, metas))
+    _text_by_id.update(zip(ids, texts))
+    _bm25 = BM25Okapi([_tokenize(d) for d in texts])
 
 
 def _dense_ranked(question: str) -> list[str]:
@@ -81,12 +88,13 @@ def _rank_documents(question: str) -> list[tuple[str, list[str]]]:
     for cid, score in chunk_scores.items():
         per_doc.setdefault(_meta_by_id[cid]["path"], []).append((score, cid))
 
-    # Best chunk dominates; additional matching chunks add a small bonus.
+    # Best chunk dominates; the next two add a small bonus. Capped so a huge document with thousands of
+    # loosely matching chunks can't outrank a short document that answers the question.
     doc_score = {}
     for path, hits in per_doc.items():
         hits.sort(reverse=True)
         scores = [s for s, _ in hits]
-        doc_score[path] = (max(scores) + 0.3 * (sum(scores) - max(scores)), [cid for _, cid in hits])
+        doc_score[path] = (scores[0] + 0.3 * sum(scores[1:3]), [cid for _, cid in hits])
     return [(p, doc_score[p][1]) for p in sorted(doc_score, key=lambda p: -doc_score[p][0])]
 
 

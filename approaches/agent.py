@@ -131,10 +131,15 @@ class _Corpus:
     def resolve_file(self, file_path: str) -> str | None:
         return self.files.get(_key(file_path))
 
+    def missing_file(self, file_path: str, tool: str) -> str:
+        if _key(file_path) in self.dir_display:
+            return f"{file_path} is a directory; `{tool}` works on a single file. Use `glob` or go deeper to find files in it."
+        return f"No such file in the corpus: {file_path}"
+
     def read(self, file_path: str, start_line: int | None = None) -> str:
         path = self.resolve_file(file_path)
         if path is None:
-            return f"No such file in the corpus: {file_path}"
+            return self.missing_file(file_path, "read")
         with open(path, encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
         try:
@@ -156,7 +161,7 @@ class _Corpus:
     def grep(self, file_path: str, pattern: str) -> str:
         path = self.resolve_file(file_path)
         if path is None:
-            return f"No such file in the corpus: {file_path}"
+            return self.missing_file(file_path, "grep")
         try:
             rx = re.compile(pattern, re.IGNORECASE)
         except re.error as e:
@@ -204,6 +209,19 @@ def _write_metadata(metadata_index: list[dict]) -> None:
 
 
 _corpus_cache: tuple[int, _Corpus] | None = None
+
+
+def _cached(messages: list[dict]) -> list[dict]:
+    """Copy of messages with a prompt-cache breakpoint on the last block, so each step re-reads the
+    growing conversation from cache (as Claude Code does) instead of paying for it in full."""
+    out = messages[:-1]
+    last = dict(messages[-1])
+    content = last["content"]
+    blocks = [{"type": "text", "text": content}] if isinstance(content, str) else [dict(b) if isinstance(b, dict) else b for b in content]
+    if blocks and isinstance(blocks[-1], dict):
+        blocks[-1] = {**blocks[-1], "cache_control": {"type": "ephemeral"}}
+    last["content"] = blocks
+    return out + [last]
 
 
 def _get_corpus(metadata_index: list[dict], corpus_roots: list[str]) -> _Corpus:
@@ -268,7 +286,7 @@ def answer_agent(question: str, metadata_index: list[dict], corpus_roots: list[s
             max_tokens=4096,
             system=SYSTEM_PROMPT,
             tools=[ACTION_TOOL],
-            messages=messages,
+            messages=_cached(messages),
         )
         config.add_usage(usage, response)
         messages.append({"role": "assistant", "content": response.content})
@@ -312,7 +330,7 @@ def answer_agent(question: str, metadata_index: list[dict], corpus_roots: list[s
             system=SYSTEM_PROMPT,
             tools=[ACTION_TOOL],
             tool_choice={"type": "none"},
-            messages=messages,
+            messages=_cached(messages),
         )
         config.add_usage(usage, response)
         answer = next((b.text for b in response.content if hasattr(b, "text")), "")

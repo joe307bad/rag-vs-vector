@@ -104,5 +104,6 @@ def answer_claude_code(question: str, corpus_roots: list[str]) -> dict:
         "usage": {
             "input_tokens": (u.get("input_tokens") or 0) + (u.get("cache_read_input_tokens") or 0) + (u.get("cache_creation_input_tokens") or 0),
             "output_tokens": u.get("output_tokens") or 0,
+            "cache_read_tokens": u.get("cache_read_input_tokens") or 0,
         },
     }

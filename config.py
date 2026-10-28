@@ -36,15 +36,14 @@ ANSWER_INSTRUCTIONS = (
 CHUNK_SIZE = 160
 CHUNK_OVERLAP = 30
 
-RAG_DENSE_K = 40       # candidates from vector search
-RAG_SPARSE_K = 40      # candidates from BM25
+RAG_DENSE_K = 100      # chunk candidates from vector search
+RAG_SPARSE_K = 100     # chunk candidates from BM25
 RAG_RERANK_CANDIDATES = 15  # fused candidates shown to the LLM reranker
 RAG_TOP_DOCS = 4       # documents whose full text is passed to the LLM
 RAG_DOC_CHARS = 15_000 # per-document cap in the LLM context
 
 if (Path.home() / ".cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2").exists():
     os.environ.setdefault("HF_HUB_OFFLINE", "1")
-MAX_FILE_READ = 50_000  # chars
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 ANTHROPIC_WORKSPACE_ID = os.environ.get("WORKSPACE_ID", "")
@@ -58,6 +57,7 @@ def add_usage(totals: dict, response) -> None:
     u = response.usage
     totals["input_tokens"] = totals.get("input_tokens", 0) + (u.input_tokens or 0) + (getattr(u, "cache_read_input_tokens", 0) or 0) + (getattr(u, "cache_creation_input_tokens", 0) or 0)
     totals["output_tokens"] = totals.get("output_tokens", 0) + (u.output_tokens or 0)
+    totals["cache_read_tokens"] = totals.get("cache_read_tokens", 0) + (getattr(u, "cache_read_input_tokens", 0) or 0)
 
 
 def make_anthropic_client():
