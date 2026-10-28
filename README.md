@@ -21,7 +21,7 @@ Four approaches answer the same set of questions drawn from your own documentati
 1. Every turn, Claude takes exactly one structured action, with a reason: a tool call (`read`, `grep`, `glob`), go one directory deeper, or stop with the answer
 2. It starts from a listing of the corpus roots and is told to consult a generated `metadata.jsonl` (path, title and opening snippet of every document), as in fs-explorer's large-corpus benchmark
 3. No pre-indexing—it explores your files on disk, then answers
-4. Same file limit as RAG (15,000 characters per read), same set of files, and a 20-action budget after which it must answer from what it has read
+4. Same per-read budget as RAG's per-document budget (15,000 characters, with paging for longer files), same set of files, prompt caching like Claude Code's, and a 30-action budget after which it must answer from what it has read
 
 **Claude Code** — the real-world baseline
 1. Each question runs as a fresh headless `claude -p` session on the same model, restricted to the read-only `Read`, `Grep` and `Glob` tools
@@ -38,7 +38,16 @@ Four approaches answer the same set of questions drawn from your own documentati
 3. Claude Code decides when to use `search` and when to `Grep` or `Read`
 4. One server runs for the whole benchmark (the index takes ~40 s to load), started and stopped by the runner, the way RAG's warmup is excluded from its per-question time
 
-All answers to a question are scored together, 0–10 for **correctness** and **relevance**, by an LLM judge (also Claude). The judge sees them anonymized and in a shuffled order, so it can't favor an approach by name or position. Wall-clock time is recorded for each answer.
+All answers to a question are scored together, 0–10 for **correctness** and **relevance**, by an LLM judge. The judge is a different, stronger model (Claude Sonnet) than the contestants (all Claude Haiku), so no approach grades its own answers, and it sees the answers anonymized and in a shuffled order, so it can't favor an approach by name or position. Wall-clock time and token usage are recorded for each answer.
+
+### Keeping it fair
+
+- **Same model** for every approach, and the **same answer instructions** (answer directly, use exact values, cite files), so answer style doesn't differ.
+- **Same documents.** RAG indexes, the agent sees, and both Claude Code candidates work in a staged copy of exactly the files listed by the manifest. Files a repo's `.gitignore` excludes (generated code, build output) are left out of the corpus.
+- **Same reading budget.** RAG passes up to 15,000 characters per document, and for longer documents that's the opening plus the passages that matched. The agent and Claude Code read up to about 15,000 characters per call and page through longer files.
+- **Questions from anywhere in a document**, not just its opening: each question is written from a random section, aligned to a heading.
+- **Fair run conditions**: the order the approaches run in is shuffled per question, and one-time setup (loading the embedding model, building the BM25 index, building the agent's file map) isn't counted in per-question time.
+- **Known caveats**: Claude Code's `Grep` searches across whole folders, while the agent's searches one file at a time. Claude Code's time is the session time the CLI reports; CLI startup adds about 2 s to its wall-clock time, which is recorded separately.
 
 ---
 
@@ -204,14 +213,15 @@ Edit `config.py` to tune the benchmark:
 | Setting | Default | Description |
 |---|---|---|
 | `EMBED_MODEL` | `all-MiniLM-L6-v2` | Sentence-transformers model for embeddings |
-| `LLM_MODEL` | `claude-haiku-5-5` | Claude model for agent, judge, and question generation |
+| `LLM_MODEL` | `claude-haiku-5-5` | Claude model for all four approaches and question generation |
+| `JUDGE_MODEL` | `claude-sonnet-5-5` | Claude model that scores the answers |
+| `ANSWER_INSTRUCTIONS` | (text) | Answer-style instructions shared by all four approaches |
 | `CHUNK_SIZE` | `160` | Words per chunk (the embedding model truncates at 256 tokens) |
 | `CHUNK_OVERLAP` | `30` | Overlap between chunks |
-| `RAG_DENSE_K` / `RAG_SPARSE_K` | `40` | Candidates from vector search / BM25 |
+| `RAG_DENSE_K` / `RAG_SPARSE_K` | `40` | Chunk candidates from vector search / BM25 |
 | `RAG_RERANK_CANDIDATES` | `15` | Documents shown to the LLM reranker |
 | `RAG_RERANK_PASSAGES` | `2` | Matching passages quoted per candidate document |
 | `RAG_TOP_DOCS` | `4` | Full documents passed to the answering LLM |
-| `MAX_FILE_READ` | `50000` | Max chars read per file (agent + indexer) |
 
 ---
 

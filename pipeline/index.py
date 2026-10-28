@@ -150,7 +150,7 @@ def build_index(docs: list[DocFile], force: bool = False) -> dict:
 
         try:
             with open(doc.path, encoding="utf-8", errors="replace") as f:
-                content = f.read(config.MAX_FILE_READ)
+                content = f.read()
         except OSError as e:
             print(f"  [warn] Cannot read {doc.path}: {e}")
             stats["errors"] += 1

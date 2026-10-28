@@ -24,7 +24,8 @@ corpus_roots:
 #   - label is a short identifier used in results and metadata; keep it slug-friendly.
 #   - include/exclude use gitignore-style glob patterns.
 #   - Add as many roots as you like. The index pipeline only re-processes changed files.
-#   - Paths with spaces work; URL-encoding (%20) is also supported.
+#   - Paths with spaces work. Folder names are used exactly as written (no URL-decoding).
+#   - Inside a git repository, files its .gitignore excludes are skipped automatically.
 
 # Applied to every root regardless of per-root excludes
 global_exclude:
